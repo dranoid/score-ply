@@ -1,0 +1,36 @@
+.test-color {
+  height: 300px;
+  width: 300px;
+  background-color: aqua;
+  text-align: center;
+}
+img.test-img {
+  height: 100px;
+  width: 100px;
+  /*
+  #ce7675
+   #301721 
+   */
+}
+.palette {
+  border-radius: 50%;
+  transition: border-radius 0.5s;
+  height: 100px;
+  width: 100px;
+  margin: 0 15px;
+}
+.flex {
+  display: flex;
+}
+.first,
+.second,
+.third {
+  display: block;
+}
+.first {
+  background: #f00;
+  margin-top: 35px;
+}
+.second {
+  background: #00f;
+}

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="./fontawesome/css/all.css" />
+    <title>Timestamp</title>
+  </head>
+  <body>
+    <div class="container">
+      <h4 id="title">Hustle</h4>
+      <audio src="./music/Hustle.mp3" id="audio"></audio>
+
+      <div class="progress-container">
+        <div class="progress"></div>
+      </div>
+      <div class="timestamp">
+        <p id="left" class="left-time">00:00</p>
+        <p id="right" class="right-time">00:00</p>
+      </div>
+      <div id="section-container"></div>
+
+      <div class="controls">
+        <button class="action-btn" id="prev">
+          <i class="fas fa-backward"></i>
+        </button>
+        <button class="action-btn" id="play">
+          <i class="fas fa-play"></i>
+        </button>
+        <button class="action-btn" id="next">
+          <i class="fas fa-forward"></i>
+        </button>
+      </div>
+    </div>
+    <div class="container section-control">
+      <form>
+        <div>
+          <span>From:</span>
+          <input
+            class="jump-text"
+            type="number"
+            id="loop-from-min"
+            placeholder="00"
+          />
+          <span>:</span>
+          <input
+            class="jump-text"
+            type="number"
+            id="loop-from-sec"
+            placeholder="00"
+          />
+
+          <span>To:</span>
+          <input
+            class="jump-text"
+            type="number"
+            id="loop-to-min"
+            placeholder="00"
+          />
+          <span>:</span>
+          <input
+            class="jump-text"
+            type="number"
+            id="loop-to-sec"
+            placeholder="00"
+          />
+          <button id="loop">Loop</button>
+        </div>
+        <div>
+          <input
+            class="jump-text"
+            type="number"
+            id="jump-to-min"
+            placeholder="00"
+          />
+          <span>:</span>
+          <input
+            class="jump-text"
+            type="number"
+            id="jump-to-sec"
+            placeholder="00"
+          />
+          <button id="jump">Jump</button>
+        </div>
+        <div>
+          <input
+            class="jump-text"
+            type="number"
+            id="section"
+            placeholder="Sections"
+          />
+          <button id="break">Break</button>
+          <input
+            class="jump-text"
+            type="number"
+            id="section-sec"
+            placeholder="Seconds"
+          />
+          <button id="break-sec">Break</button>
+        </div>
+      </form>
+      <div class="section-list">
+        <!-- This is where the sections go -->
+        <!-- <span class="section">sectionation</span>
+        <span class="section">section</span>
+        <span class="section">sectionatinglang</span>
+        <span class="section">section</span>
+        <span class="section">section</span>
+        <span class="section">section</span>
+        <span class="section">section</span>
+        <span class="section">section</span>
+        <span class="section">section</span> -->
+      </div>
+    </div>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

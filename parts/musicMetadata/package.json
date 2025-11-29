@@ -1,0 +1,17 @@
+{
+  "name": "musicmetadata",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "browser": "browserify index.js -o bundle.js"
+  },
+  "author": "dranoid",
+  "license": "ISC",
+  "dependencies": {
+    "browserify": "^17.0.0",
+    "jsmediatags": "^3.9.7",
+    "requirejs": "^2.3.6"
+  }
+}
