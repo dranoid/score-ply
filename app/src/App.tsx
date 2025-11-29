@@ -2,13 +2,20 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AudioUpload } from "./components/AudioUpload";
 import { AudioPlayer } from "./components/AudioPlayer";
 import { useStore } from "./store/useStore";
+import { LoopControls } from "./components/LoopControls";
 
 function App() {
   const { file, error, isLoading } = useStore((state) => state.audio);
 
   return (
     <ThemeProvider>
-      <div className="min-h-screen bg-gradient-to-b from-[var(--primary-theme-color)] to-[#121212] text-white transition-colors duration-700">
+      <div
+        className="min-h-screen text-white transition-colors duration-700"
+        style={{
+          background:
+            "linear-gradient(to bottom, var(--primary-theme-color), var(--secondary-theme-color))",
+        }}
+      >
         <div className="container mx-auto px-4 py-12">
           <div className="max-w-4xl mx-auto">
             {/* Header */}
@@ -45,9 +52,7 @@ function App() {
             {/* Placeholder for future components */}
             {file && !isLoading && (
               <div className="mt-12 space-y-6">
-                {/* Loop Controls will go here */}
-                {/* Sectioning Controls will go here */}
-                {/* Section List will go here */}
+                <LoopControls />
               </div>
             )}
           </div>

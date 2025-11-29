@@ -7,7 +7,7 @@ import { ProgressBar } from "./ProgressBar";
 
 export const AudioPlayer: React.FC = () => {
     const audioRef = useRef<HTMLAudioElement>(null);
-    const animationFrameRef = useRef<number>();
+    const animationFrameRef = useRef<number | null>(null);
 
     const { url, isPlaying, duration } = useStore((state) => state.audio);
     const loop = useStore((state) => state.loop);

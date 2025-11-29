@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AudioState, LoopState, SectioningState, AudioMetadata } from "../types";
+import type { AudioState, LoopState, SectioningState } from "../types";
 import type { AudioSection } from "../utils/SectioningEngine";
 
 interface AppState {

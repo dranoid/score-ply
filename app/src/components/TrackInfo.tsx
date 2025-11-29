@@ -16,10 +16,14 @@ export const TrackInfo: React.FC = () => {
                     <img
                         src={coverArtUrl}
                         alt={title || "Album cover"}
-                        className="w-48 h-48 rounded-lg shadow-2xl object-cover"
+                        style={{ width: 192, height: 192, objectFit: "cover" }}
+                        className="rounded-lg shadow-2xl"
                     />
                 ) : (
-                    <div className="w-48 h-48 rounded-lg bg-white/10 flex items-center justify-center">
+                    <div
+                        style={{ width: 192, height: 192 }}
+                        className="rounded-lg bg-white/10 flex items-center justify-center"
+                    >
                         <span className="text-white/50 text-4xl">♪</span>
                     </div>
                 )}

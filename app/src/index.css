@@ -33,3 +33,22 @@ body {
   width: 100%;
   min-height: 100vh;
 }
+
+/* Constrain any images within the app to reasonable size */
+#root img {
+  max-width: 192px;
+  max-height: 192px;
+  height: auto;
+  object-fit: cover;
+}
+
+/* Hide any stray canvases created by color extraction libraries */
+#root canvas {
+  display: none;
+}
+
+/* Hide any DOM-level images or canvases accidentally appended to <body> */
+body > img,
+body > canvas {
+  display: none !important;
+}
