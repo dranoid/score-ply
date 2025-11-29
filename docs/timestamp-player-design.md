@@ -30,13 +30,15 @@ The original implementation had several time math issues:
 ```
 App
 ├── AudioUpload
-├── AudioPlayer
-│   ├── PlaybackControls
-│   ├── ProgressBar
-│   ├── TimestampDisplay
-│   └── LoopControls
-├── SectioningControls
-├── SectionList
+├── ThemeProvider
+│   ├── AudioPlayer
+│   │   ├── TrackInfo (Cover Art, Title, Artist)
+│   │   ├── PlaybackControls
+│   │   ├── ProgressBar
+│   │   ├── TimestampDisplay
+│   │   └── LoopControls
+│   ├── SectioningControls
+│   └── SectionList
 └── ErrorBoundary
 ```
 
@@ -46,11 +48,22 @@ App
 interface AudioState {
   file: File | null;
   url: string | null;
+  metadata: AudioMetadata | null;
   duration: number; // guaranteed finite, defaults to 0
   currentTime: number;
   isPlaying: boolean;
   isLoading: boolean;
   error: string | null;
+}
+
+interface AudioMetadata {
+  title?: string;
+  artist?: string;
+  album?: string;
+  genre?: string;
+  coverArtUrl?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
 }
 
 interface LoopState {
@@ -257,6 +270,29 @@ class LoopEngine {
     return { valid: true };
   }
 }
+
+### Dynamic Theme & Metadata System
+
+**Concept:**
+The application will mimic Spotify's immersive design by extracting the dominant color from the track's cover art and applying it as a dynamic background gradient.
+
+**Metadata Extraction:**
+- Library: `jsmediatags`
+- Extracted Fields: Title, Artist, Album, Genre, Picture (Cover Art)
+- Fallback: Default placeholder image and neutral colors if no metadata is found.
+
+**Color Extraction:**
+- Library: `color-thief` (or similar lightweight alternative)
+- Process:
+    1.  Convert extracted picture data to a Blob/URL.
+    2.  Pass image URL to Color Thief.
+    3.  Extract dominant color and a palette.
+    4.  Generate a complementary text color (YIQ contrast check) to ensure readability.
+
+**Theme Application:**
+- A `ThemeProvider` context will wrap the player.
+- It will expose `--primary-theme-color` and `--secondary-theme-color` CSS variables.
+- The UI will use a linear gradient background: `linear-gradient(to bottom, var(--primary-theme-color), #121212)`.
 ```
 
 ## Component Details
