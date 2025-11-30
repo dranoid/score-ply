@@ -8,6 +8,12 @@ export interface AudioMetadata {
     secondaryColor?: string;
 }
 
+export interface Track {
+    file: File;
+    url: string;
+    metadata: AudioMetadata | null;
+}
+
 export interface AudioState {
     file: File | null;
     url: string | null;
@@ -17,6 +23,9 @@ export interface AudioState {
     isPlaying: boolean;
     isLoading: boolean;
     error: string | null;
+    volume: number;
+    playlist: Track[];
+    currentIndex: number;
 }
 
 export interface LoopState {
@@ -35,4 +44,12 @@ export interface AudioSection {
     startTime: number;
     endTime: number;
     label: string;
+}
+
+export type RepeatMode = "off" | "all" | "one";
+
+export interface UIState {
+    isRightSidebarOpen: boolean;
+    shuffle: boolean;
+    repeatMode: RepeatMode;
 }

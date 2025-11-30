@@ -30,7 +30,7 @@ export const PlaybackControls: React.FC = () => {
             {/* Skip Backward */}
             <button
                 onClick={handleSkipBackward}
-                className="p-3 rounded-full hover:bg-white/10 transition-colors"
+                className="btn btn-icon"
                 aria-label="Skip backward 10 seconds"
             >
                 <SkipBack className="w-6 h-6" />
@@ -39,7 +39,7 @@ export const PlaybackControls: React.FC = () => {
             {/* Play/Pause */}
             <button
                 onClick={handlePlayPause}
-                className="p-4 rounded-full bg-white text-black hover:scale-105 transition-transform"
+                className="p-4 rounded-full shadow-lg hover:scale-105 transition-transform btn btn-primary"
                 aria-label={isPlaying ? "Pause" : "Play"}
             >
                 {isPlaying ? (
@@ -52,7 +52,7 @@ export const PlaybackControls: React.FC = () => {
             {/* Skip Forward */}
             <button
                 onClick={handleSkipForward}
-                className="p-3 rounded-full hover:bg-white/10 transition-colors"
+                className="btn btn-icon"
                 aria-label="Skip forward 10 seconds"
             >
                 <SkipForward className="w-6 h-6" />

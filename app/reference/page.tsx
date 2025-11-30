@@ -1,12 +1,13 @@
+"use client"
+
 import type React from "react"
-import { useEffect, useRef, useState } from "react"
-import { Button } from "./components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs"
-import { Slider } from "./components/ui/slider"
-import { Card } from "./components/ui/card"
-import { Checkbox } from "./components/ui/checkbox"
-import { MetadataExtractor } from "./utils/MetadataExtractor"
-import type { Track } from "./types"
+
+import { useState, useRef, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Slider } from "@/components/ui/slider"
+import { Card } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Home,
   Search,
@@ -23,7 +24,7 @@ import {
   Shuffle,
 } from "lucide-react"
 
-export default function App() {
+export default function MusicPlayer() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -34,12 +35,7 @@ export default function App() {
   const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("off")
   const [isShuffle, setIsShuffle] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const headerFileInputRef = useRef<HTMLInputElement>(null)
-  const modalFileInputRef = useRef<HTMLInputElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
-  const [tracks, setTracks] = useState<Track[]>([])
-  const [currentIndex, setCurrentIndex] = useState<number>(-1)
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
 
   useEffect(() => {
     const audio = audioRef.current
@@ -62,38 +58,19 @@ export default function App() {
       if (isPlaying) {
         audioRef.current.pause()
       } else {
-        void audioRef.current.play()
+        audioRef.current.play()
       }
       setIsPlaying(!isPlaying)
     }
   }
 
-  const addFilesToPlaylist = async (files: FileList | null) => {
-    if (!files || files.length === 0) return
-    const newTracks: Track[] = []
-    for (const file of Array.from(files)) {
-      const url = URL.createObjectURL(file)
-      const metadata = await MetadataExtractor.extractMetadata(file)
-      newTracks.push({ file, url, metadata })
-    }
-    setTracks((prev) => {
-      const updated = [...prev, ...newTracks]
-      if (audioRef.current && updated.length > 0) {
-        const idx = updated.length - 1
-        audioRef.current.src = updated[idx].url
-        setCurrentIndex(idx)
-        setIsPlaying(false)
-      }
-      return updated
-    })
-  }
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    void addFilesToPlaylist(e.target.files)
-  }
-
-  const handleHeaderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    void addFilesToPlaylist(e.target.files)
+    const file = e.target.files?.[0]
+    if (file && audioRef.current) {
+      const url = URL.createObjectURL(file)
+      audioRef.current.src = url
+      setIsPlaying(false)
+    }
   }
 
   const handleProgressChange = (value: number[]) => {
@@ -112,7 +89,7 @@ export default function App() {
   }
 
   const formatTime = (seconds: number) => {
-    if (!seconds || Number.isNaN(seconds)) return "00:00"
+    if (!seconds || isNaN(seconds)) return "00:00"
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
@@ -126,20 +103,21 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-background text-foreground">
+      {/* Left Sidebar */}
       <aside className="w-64 border-r border-border bg-sidebar flex flex-col">
         <div className="p-6 border-b border-sidebar-border">
           <div className="flex items-center gap-2 mb-8">
             <Music className="w-6 h-6 text-accent" />
-            <span className="text-xl font-bold">Scoreply</span>
+            <span className="text-xl font-bold">PlayTrack</span>
           </div>
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-4">
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-sidebar-primary/10 text-accent hover:bg-sidebar-primary/20 transition-colors cursor-pointer">
+          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-sidebar-primary/10 text-accent hover:bg-sidebar-primary/20 transition-colors">
             <Home className="w-5 h-5" />
             <span className="font-medium">Home</span>
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/10 transition-colors cursor-pointer">
+          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/10 transition-colors">
             <Search className="w-5 h-5" />
             <span>Search</span>
           </button>
@@ -147,49 +125,33 @@ export default function App() {
 
         <div className="p-4 border-t border-sidebar-border">
           <div className="text-xs text-sidebar-foreground/50 mb-2">Now Playing</div>
-          <div className="text-sm font-medium text-sidebar-foreground/80 truncate">
-            {currentIndex >= 0 && tracks[currentIndex]?.metadata?.title
-              ? tracks[currentIndex]?.metadata?.title
-              : "No track loaded"}
-          </div>
+          <div className="text-sm font-medium text-sidebar-foreground/80">No track loaded</div>
         </div>
       </aside>
 
+      {/* Main Content */}
       <main className="flex-1 flex flex-col">
+        {/* Header */}
         <header className="border-b border-border bg-card/30 backdrop-blur-sm px-8 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-4xl font-bold mb-2">{(() => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening" })()}</h1>
+              <h1 className="text-4xl font-bold mb-2">Good evening</h1>
               <p className="text-muted-foreground">Start listening to your music</p>
             </div>
-            <div className="flex items-center gap-3">
-              <input
-                ref={headerFileInputRef}
-                type="file"
-                accept="audio/*"
-                multiple
-                onChange={handleHeaderUpload}
-                className="hidden"
-              />
-              <Button onClick={() => setIsUploadModalOpen(true)} className="bg-accent text-accent-foreground hover:bg-accent/90">
-                <Upload className="w-4 h-4" />
-                Upload
-              </Button>
-              <Button
-                onClick={() => setShowControls(!showControls)}
-                variant="ghost"
-                size="icon"
-                className="w-12 h-12 rounded-lg hover:bg-accent/10 text-accent transition-colors"
-              >
-                <Settings className="w-5 h-5" />
-              </Button>
-            </div>
+            <Button
+              onClick={() => setShowControls(!showControls)}
+              variant="ghost"
+              size="icon"
+              className="w-12 h-12 rounded-lg hover:bg-accent/10 text-accent transition-colors"
+            >
+              <Settings className="w-5 h-5" />
+            </Button>
           </div>
         </header>
 
+        {/* Content Area */}
         <div className="flex-1 overflow-auto px-8 py-8">
-          {tracks.length === 0 && (
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-2xl">
             <Card className="bg-card border-border p-8 rounded-2xl">
               <h2 className="text-2xl font-bold mb-6">Upload Audio File</h2>
               <p className="text-muted-foreground mb-8">
@@ -212,53 +174,13 @@ export default function App() {
               </div>
             </Card>
           </div>
-          )}
-          {tracks.length > 0 && (
-            <div className="mt-8 max-w-3xl mx-auto space-y-3">
-              {tracks.map((t, i) => (
-                <div
-                  key={`${t.url}-${i}`}
-                  className="flex items-center gap-4 p-3 rounded-lg border border-border bg-card hover:bg-card/80 transition-colors cursor-pointer"
-                  onClick={() => {
-                    if (audioRef.current) {
-                      audioRef.current.src = t.url
-                      setCurrentIndex(i)
-                      setIsPlaying(false)
-                    }
-                  }}
-                >
-                  <span className="w-6 text-right text-xs text-muted-foreground">{i + 1}</span>
-                  {t.metadata?.coverArtUrl ? (
-                    <img src={t.metadata.coverArtUrl} alt="cover" className="w-12 h-12 rounded-md object-cover" />
-                  ) : (
-                    <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center">
-                      <Music className="w-5 h-5 text-muted-foreground" />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{t.metadata?.title || t.file.name}</div>
-                    <div className="text-xs text-muted-foreground truncate">{[t.metadata?.artist, t.metadata?.album, t.metadata?.genre].filter(Boolean).join(" • ")}</div>
-                  </div>
-                  <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-foreground" onClick={(ev) => {
-                    ev.stopPropagation();
-                    if (audioRef.current) {
-                      audioRef.current.src = t.url;
-                      setCurrentIndex(i);
-                      void audioRef.current.play();
-                      setIsPlaying(true);
-                    }
-                  }}>
-                    <Play className="w-4 h-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
+        {/* Player Controls */}
         <div className="border-t border-border bg-card/50 backdrop-blur-sm px-8 py-6">
           <audio ref={audioRef} />
 
+          {/* Progress Bar */}
           <div className="flex items-center gap-4 mb-6">
             <span className="text-sm text-muted-foreground min-w-fit">{formatTime(currentTime)}</span>
             <Slider
@@ -272,7 +194,9 @@ export default function App() {
             <span className="text-sm text-muted-foreground min-w-fit">{formatTime(duration)}</span>
           </div>
 
-          <div className="relative flex items-center justify-center gap-4 mb-6">
+          {/* Player Buttons */}
+          <div className="flex items-center justify-center gap-4 mb-6">
+            {/* Shuffle Button */}
             <Button
               onClick={() => setIsShuffle(!isShuffle)}
               variant="ghost"
@@ -284,18 +208,31 @@ export default function App() {
               <Shuffle className="w-5 h-5" />
             </Button>
 
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-muted/30">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground hover:bg-muted/30"
+            >
               <SkipBack className="w-5 h-5" />
             </Button>
 
-            <Button onClick={handlePlayPause} size="icon" className="w-14 h-14 rounded-full bg-accent hover:bg-accent/90 text-accent-foreground shadow-lg">
+            <Button
+              onClick={handlePlayPause}
+              size="icon"
+              className="w-14 h-14 rounded-full bg-accent hover:bg-accent/90 text-accent-foreground shadow-lg"
+            >
               {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
             </Button>
 
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-muted/30">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground hover:bg-muted/30"
+            >
               <SkipForward className="w-5 h-5" />
             </Button>
 
+            {/* Repeat Button */}
             <Button
               onClick={cycleRepeatMode}
               variant="ghost"
@@ -311,17 +248,28 @@ export default function App() {
                 </span>
               )}
             </Button>
-            <div className="absolute right-0 flex items-center gap-3">
-              <Volume2 className="w-4 h-4 text-muted-foreground" />
-              <Slider value={[volume]} min={0} max={100} step={1} onValueChange={handleVolumeChange} className="w-32" />
-              <span className="text-xs text-muted-foreground min-w-fit">{volume}%</span>
-            </div>
+          </div>
+
+          {/* Volume Control */}
+          <div className="flex items-center gap-4">
+            <Volume2 className="w-4 h-4 text-muted-foreground" />
+            <Slider
+              value={[volume]}
+              min={0}
+              max={100}
+              step={1}
+              onValueChange={handleVolumeChange}
+              className="flex-1 max-w-xs"
+            />
+            <span className="text-xs text-muted-foreground min-w-fit">{volume}%</span>
           </div>
         </div>
       </main>
 
+      {/* Right Control Panel */}
       {showControls && (
         <aside className="w-80 border-l border-border bg-card/30 backdrop-blur-sm flex flex-col">
+          {/* Header */}
           <div className="border-b border-border px-6 py-4 flex items-center justify-between">
             <h3 className="text-lg font-bold flex items-center gap-2">
               <RotateCw className="w-4 h-4 text-accent" />
@@ -332,12 +280,18 @@ export default function App() {
             </Button>
           </div>
 
+          {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
             <TabsList className="mx-4 mt-4 grid w-auto grid-cols-2 bg-muted/50">
-              <TabsTrigger value="loop" className="text-sm">Loop</TabsTrigger>
-              <TabsTrigger value="sectioning" className="text-sm">Sections</TabsTrigger>
+              <TabsTrigger value="loop" className="text-sm">
+                Loop
+              </TabsTrigger>
+              <TabsTrigger value="sectioning" className="text-sm">
+                Sections
+              </TabsTrigger>
             </TabsList>
 
+            {/* Loop Controls Tab */}
             <TabsContent value="loop" className="flex-1 px-6 py-6 space-y-6">
               <div>
                 <h4 className="font-semibold text-sm mb-4 flex items-center gap-2">
@@ -349,7 +303,7 @@ export default function App() {
                   <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/30 cursor-pointer transition-colors">
                     <Checkbox
                       checked={isLoopEnabled}
-                      onCheckedChange={(checked) => setIsLoopEnabled(!!checked)}
+                      onCheckedChange={(checked) => setIsLoopEnabled(checked as boolean)}
                       className="border-border"
                     />
                     <span className="text-sm font-medium">Enable Loop</span>
@@ -379,6 +333,7 @@ export default function App() {
               </div>
             </TabsContent>
 
+            {/* Sectioning Controls Tab */}
             <TabsContent value="sectioning" className="flex-1 px-6 py-6 space-y-6">
               <div>
                 <h4 className="font-semibold text-sm mb-4 flex items-center gap-2">
@@ -388,55 +343,14 @@ export default function App() {
 
                 <div className="space-y-3 text-center py-8 text-muted-foreground">
                   <p className="text-sm">No sections created yet</p>
-                  <Button className="w-full bg-accent hover:bg-accent/90 text-accent-foreground mt-4">Add Section</Button>
+                  <Button className="w-full bg-accent hover:bg-accent/90 text-accent-foreground mt-4">
+                    Add Section
+                  </Button>
                 </div>
               </div>
             </TabsContent>
           </Tabs>
         </aside>
-      )}
-
-      {isUploadModalOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center px-4"
-          onClick={() => setIsUploadModalOpen(false)}
-        >
-          <div className="max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
-            <Card className="bg-card border-border p-8 rounded-2xl">
-              <h2 className="text-2xl font-bold mb-6">Upload Audio File</h2>
-              <p className="text-muted-foreground mb-8">
-                Upload an audio file to use the timestamp player features including looping and sectioning.
-              </p>
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  void addFilesToPlaylist(e.dataTransfer.files)
-                  setIsUploadModalOpen(false)
-                }}
-                className="flex items-center justify-center w-full"
-              >
-                <label className="w-full flex flex-col items-center justify-center border-2 border-dashed border-accent/30 rounded-xl p-12 cursor-pointer hover:bg-accent/5 hover:border-accent/50 transition-all duration-200">
-                  <Upload className="w-12 h-12 text-accent mb-3" />
-                  <span className="text-lg font-semibold text-accent mb-1">Drag and drop or browse</span>
-                  <span className="text-sm text-muted-foreground">Click to browse or drag and drop</span>
-                  <input
-                    ref={modalFileInputRef}
-                    type="file"
-                    accept="audio/*"
-                    multiple
-                    onChange={(e) => {
-                      handleHeaderUpload(e)
-                      setIsUploadModalOpen(false)
-                    }}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-              
-            </Card>
-          </div>
-        </div>
       )}
     </div>
   )

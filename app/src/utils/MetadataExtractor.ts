@@ -35,7 +35,15 @@ export class MetadataExtractor {
     }
   }
 
-  private static readTags(file: File): Promise<any> {
+  private static readTags(
+    file: File
+  ): Promise<{
+    title?: string;
+    artist?: string;
+    album?: string;
+    genre?: string;
+    picture?: { data: number[]; format: string };
+  }> {
     return new Promise((resolve, reject) => {
       jsmediatags.read(file, {
         onSuccess: (tag) => resolve(tag.tags),
@@ -44,7 +52,7 @@ export class MetadataExtractor {
     });
   }
 
-  private static createImageUrl(picture: any): string {
+  private static createImageUrl(picture: { data: number[]; format: string }): string {
     const { data, format } = picture;
     const byteArray = new Uint8Array(data);
     const blob = new Blob([byteArray], { type: format });

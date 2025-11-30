@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useStore } from "../store/useStore";
 import { TimeMath } from "../utils/TimeMath";
 
@@ -7,14 +7,14 @@ export const ProgressBar: React.FC = () => {
   const { currentTime, duration } = useStore((state) => state.audio);
   const [dragging, setDragging] = useState(false);
 
-  const seekToClientX = (clientX: number) => {
+  const seekToClientX = useCallback((clientX: number) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const x = clientX - rect.left;
     const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
     const time = TimeMath.calculateTimeFromProgress(percentage, duration);
     window.dispatchEvent(new CustomEvent("audio-seek", { detail: { time } }));
-  };
+  }, [duration]);
 
   useEffect(() => {
     if (!dragging) return;
@@ -26,7 +26,7 @@ export const ProgressBar: React.FC = () => {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
-  }, [dragging]);
+  }, [dragging, seekToClientX]);
 
   const progress = TimeMath.calculateProgress(currentTime, duration);
 
@@ -39,7 +39,7 @@ export const ProgressBar: React.FC = () => {
 
       <div
         ref={containerRef}
-        className="relative w-full h-4 bg-slate-300 rounded-full cursor-pointer group"
+        className="relative w-full h-4 bg-white/20 rounded-full cursor-pointer group border border-white/10"
         role="slider"
         aria-valuemin={0}
         aria-valuemax={duration}
@@ -52,12 +52,12 @@ export const ProgressBar: React.FC = () => {
         onClick={(e) => seekToClientX(e.clientX)}
       >
         <div
-          className="absolute top-0 left-0 h-full bg-teal-500 rounded-full transition-all"
-          style={{ width: `${progress}%` }}
+          className="absolute top-0 left-0 h-full rounded-full transition-all"
+          style={{ width: `${progress}%`, backgroundColor: "var(--primary-theme-color)" }}
         />
         <div
-          className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-teal-700 rounded-full shadow-lg"
-          style={{ left: `${progress}%`, transform: "translate(-50%, -50%)" }}
+          className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full shadow-lg border border-black/20"
+          style={{ left: `${progress}%`, transform: "translate(-50%, -50%)", backgroundColor: "var(--primary-theme-color)" }}
         />
       </div>
     </div>

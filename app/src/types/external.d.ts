@@ -21,10 +21,10 @@ declare module "jsmediatags" {
         file: File | Blob,
         callbacks: {
             onSuccess: (tag: ReadResult) => void;
-            onError: (error: any) => void;
+            onError: (error: { type: string; info: string }) => void;
         }
-    ): void;
-}
+        ): void;
+    }
 
 declare module "jsmediatags/dist/jsmediatags.min.js" {
     const jsmediatags: {
@@ -38,7 +38,7 @@ declare module "jsmediatags/dist/jsmediatags.min.js" {
                     genre?: string;
                     picture?: { data: number[]; format: string };
                 } }) => void;
-                onError: (error: any) => void;
+                onError: (error: { type: string; info: string }) => void;
             }
         ): void;
     };

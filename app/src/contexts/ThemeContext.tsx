@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect } from "react";
+import React, { createContext, useEffect } from "react";
 import { useStore } from "../store/useStore";
 
 interface ThemeContextValue {
@@ -13,7 +13,6 @@ const ThemeContext = createContext<ThemeContextValue>({
     textColor: "#ffffff",
 });
 
-export const useTheme = () => useContext(ThemeContext);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
     children,

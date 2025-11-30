@@ -5,8 +5,7 @@ import { MetadataExtractor } from "../utils/MetadataExtractor";
 
 export const AudioUpload: React.FC = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const { setFile, setMetadata, setIsLoading, setError, resetAudio } =
-        useStore();
+    const { addTrack, setIsLoading, setError, resetAudio } = useStore();
 
     const handleFileChange = async (
         event: React.ChangeEvent<HTMLInputElement>
@@ -24,12 +23,9 @@ export const AudioUpload: React.FC = () => {
             setIsLoading(true);
             setError(null);
 
-            // Extract metadata
             const metadata = await MetadataExtractor.extractMetadata(file);
-
-            // Update store
-            setFile(file);
-            setMetadata(metadata);
+            const url = URL.createObjectURL(file);
+            addTrack({ file, url, metadata });
         } catch (error) {
             console.error("Error loading audio file:", error);
             setError("Failed to load audio file");
@@ -64,17 +60,17 @@ export const AudioUpload: React.FC = () => {
             {!file ? (
                 <button
                     onClick={handleUploadClick}
-                    className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white/10 hover:bg-white/20 rounded-lg transition-colors border-2 border-dashed border-white/30"
+                    className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-lg transition-colors btn btn-dashed"
                 >
                     <Upload className="w-6 h-6" />
                     <span className="text-lg font-medium">Upload Audio File</span>
                 </button>
             ) : (
-                <div className="flex items-center justify-between px-4 py-2 bg-white/10 rounded-lg">
+                <div className="flex items-center justify-between px-4 py-2 bg-white/10 rounded-lg border border-white/10">
                     <span className="text-sm truncate">{file.name}</span>
                     <button
                         onClick={handleReset}
-                        className="ml-4 px-3 py-1 text-sm bg-red-500/80 hover:bg-red-500 rounded transition-colors"
+                        className="ml-4 px-3 py-1 text-sm rounded transition-colors btn btn-secondary"
                     >
                         Remove
                     </button>
