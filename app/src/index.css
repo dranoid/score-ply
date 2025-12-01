@@ -75,7 +75,8 @@
 }
 
 @theme inline {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, "Noto Sans", "Liberation Sans", sans-serif;
   --font-mono: "Geist Mono", "Geist Mono Fallback";
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -113,6 +114,19 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* Hide canvases injected by cover-art analysis libraries */
+body > canvas {
+  display: none !important;
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+}
+
+/* Uniform digit widths without switching to monospace */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
 @layer base {

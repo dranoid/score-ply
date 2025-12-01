@@ -48,6 +48,8 @@ export default function App() {
   const [sectionCount, setSectionCount] = useState<number>(4)
   const [sectionDuration, setSectionDuration] = useState<number>(30)
   const [sections, setSections] = useState<AudioSection[]>([])
+  const [activeSectionIndex, setActiveSectionIndex] = useState<number | null>(null)
+  const [sectionError, setSectionError] = useState<string | null>(null)
   const [loopStart, setLoopStart] = useState("00:00")
   const [loopEnd, setLoopEnd] = useState("00:30")
   const [loopStartError, setLoopStartError] = useState<string | null>(null)
@@ -56,11 +58,12 @@ export default function App() {
   const [useHoursFormat, setUseHoursFormat] = useState(false)
   const [isSliderHover, setIsSliderHover] = useState(false)
   const [isSliderFocus, setIsSliderFocus] = useState(false)
-  const [isMouseInteracting, setIsMouseInteracting] = useState(false)
   const [hoveredTime, setHoveredTime] = useState(0)
   const [draggingMarker, setDraggingMarker] = useState<"start" | "end" | null>(null)
   const [isStartHover, setIsStartHover] = useState(false)
   const [isEndHover, setIsEndHover] = useState(false)
+  const [isPlayThumbHover, setIsPlayThumbHover] = useState(false)
+  const [focusOrigin, setFocusOrigin] = useState<"keyboard" | "mouse" | null>(null)
   const sliderContainerRef = useRef<HTMLDivElement>(null)
 
   const sanitizeTimestampInput = (raw: string): string => {
@@ -174,7 +177,6 @@ export default function App() {
     if (!draggingMarker) return
     const move = (e: PointerEvent) => updateMarkersFromClientX(e.clientX)
     const up = () => {
-      setIsMouseInteracting(false)
       setDraggingMarker(null)
     }
     window.addEventListener("pointermove", move)
@@ -202,6 +204,15 @@ export default function App() {
 
     const handleTimeUpdate = () => {
       setCurrentTime(audio.currentTime)
+      // Prefer active section loop when a section is selected
+      if (activeSectionIndex != null && sections[activeSectionIndex]) {
+        const { startTime: s, endTime: e } = sections[activeSectionIndex]
+        const v = LoopEngine.validateLoopBounds(s, e, duration)
+        if (v.valid && LoopEngine.shouldLoop(audio.currentTime, e)) {
+          audio.currentTime = LoopEngine.getLoopStartTime(s)
+        }
+        return
+      }
       if (!isLoopEnabled) return
       const s = parseTimestampText(loopStart, useHoursFormat)
       const e = parseTimestampText(loopEnd, useHoursFormat)
@@ -225,7 +236,7 @@ export default function App() {
       audio.removeEventListener("timeupdate", handleTimeUpdate)
       audio.removeEventListener("loadedmetadata", handleLoadedMetadata)
     }
-  }, [isLoopEnabled, loopStart, loopEnd, duration, useHoursFormat, validateLoopInputs])
+  }, [isLoopEnabled, loopStart, loopEnd, duration, useHoursFormat, validateLoopInputs, activeSectionIndex, sections])
 
   const handlePlayPause = () => {
     if (audioRef.current) {
@@ -479,13 +490,14 @@ export default function App() {
                 <div
                   key={`${t.url}-${i}`}
                   className="flex items-center gap-4 p-3 rounded-lg border border-border bg-card hover:bg-card/80 transition-colors cursor-pointer"
-                  onClick={() => {
-                    if (audioRef.current) {
-                      audioRef.current.src = t.url
-                      setCurrentIndex(i)
-                      setIsPlaying(false)
-                    }
-                  }}
+                    onClick={() => {
+                      if (audioRef.current) {
+                        audioRef.current.src = t.url
+                        setCurrentIndex(i)
+                        setIsPlaying(false)
+                        setActiveSectionIndex(null)
+                      }
+                    }}
                 >
                   <span className="w-6 text-right text-xs text-muted-foreground">{i + 1}</span>
                   {t.metadata?.coverArtUrl ? (
@@ -520,7 +532,7 @@ export default function App() {
           <audio ref={audioRef} />
 
           <div className="flex items-center gap-4 mb-6">
-            <span className="text-sm text-muted-foreground inline-block w-[8ch] text-center font-mono select-none">{formatTime(currentTime)}</span>
+            <span className="text-sm text-muted-foreground inline-block w-[8ch] text-center select-none tabular-nums">{formatTime(currentTime)}</span>
             <div
               className="relative flex-1"
               ref={sliderContainerRef}
@@ -538,15 +550,12 @@ export default function App() {
               }}
               onMouseLeave={() => {
                 setIsSliderHover(false)
-                setIsMouseInteracting(false)
               }}
               onPointerMove={(e) => {
                 if (!duration || !draggingMarker) return
                 updateMarkersFromClientX(e.clientX)
               }}
-              onPointerDown={() => setIsMouseInteracting(true)}
               onPointerUp={() => {
-                setIsMouseInteracting(false)
                 setDraggingMarker(null)
               }}
             >
@@ -559,12 +568,19 @@ export default function App() {
                 disabled={duration === 0 || currentIndex === -1}
                 onFocus={() => {
                   setIsSliderFocus(true)
-                  setIsMouseInteracting(false)
                 }}
+                onKeyDown={() => setFocusOrigin("keyboard")}
                 onBlur={() => setIsSliderFocus(false)}
                 aria-label="Playback position"
                 aria-valuetext={duration >= 3600 ? TimeMath.formatTimeHMS(currentTime) : TimeMath.formatTime(currentTime)}
                 className="w-full"
+                thumbProps={{
+                  onPointerEnter: () => setIsPlayThumbHover(true),
+                  onPointerLeave: () => setIsPlayThumbHover(false),
+                  onPointerDown: () => {
+                    setFocusOrigin("mouse")
+                  },
+                }}
               />
               {duration > 0 && (() => {
                 const s = parseTimestampText(loopStart, useHoursFormat)
@@ -611,7 +627,7 @@ export default function App() {
                   </>
                 )
               })()}
-              {(isSliderHover && !isStartHover && !isEndHover && !draggingMarker) || (isSliderFocus && !isMouseInteracting) ? (
+              {isSliderHover && !isStartHover && !isEndHover && !draggingMarker && !isPlayThumbHover ? (
                 <div
                   className="absolute -top-6 px-2 py-1 rounded-md bg-card border border-border text-xs text-foreground shadow select-none"
                   style={{
@@ -625,8 +641,20 @@ export default function App() {
                     : TimeMath.formatTime(isSliderHover ? hoveredTime : currentTime)}
                 </div>
               ) : null}
+              {(isPlayThumbHover || (isSliderFocus && focusOrigin === "keyboard")) && duration > 0 && (
+                <div
+                  className="absolute -top-6 px-2 py-1 rounded-md bg-card border border-border text-xs text-foreground shadow select-none"
+                  style={{
+                    left: `${Math.max(0, Math.min(100, (currentTime / duration) * 100))}%`,
+                    transform: "translateX(-50%)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {duration >= 3600 ? TimeMath.formatTimeHMS(currentTime) : TimeMath.formatTime(currentTime)}
+                </div>
+              )}
             </div>
-            <span className="text-sm text-muted-foreground inline-block w-[8ch] text-center font-mono select-none">{formatTime(duration)}</span>
+            <span className="text-sm text-muted-foreground inline-block w-[8ch] text-center select-none tabular-nums">{formatTime(duration)}</span>
           </div>
 
           <div className="relative flex items-center justify-center gap-4 mb-6">
@@ -642,7 +670,34 @@ export default function App() {
               <Shuffle className="w-5 h-5" />
             </Button>
 
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-muted/30" disabled={currentIndex === -1 || duration === 0}>
+            <Button
+              onClick={() => {
+                if (tracks.length === 0) return
+                if (!audioRef.current) return
+                let nextIndex = currentIndex
+                if (isShuffle) {
+                  const candidates = tracks.map((_, idx) => idx).filter((idx) => idx !== currentIndex)
+                  nextIndex = candidates.length > 0 ? candidates[Math.floor(Math.random() * candidates.length)] : currentIndex
+                } else if (repeatMode === "one") {
+                  nextIndex = currentIndex
+                } else {
+                  nextIndex = currentIndex > 0 ? currentIndex - 1 : (repeatMode === "all" ? tracks.length - 1 : 0)
+                }
+                audioRef.current.src = tracks[nextIndex].url
+                setCurrentIndex(nextIndex)
+                if (isPlaying) {
+                  void audioRef.current.play()
+                  setIsPlaying(true)
+                } else {
+                  setIsPlaying(false)
+                }
+                setActiveSectionIndex(null)
+              }}
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground hover:bg-muted/30"
+              disabled={currentIndex === -1 || duration === 0}
+            >
               <SkipBack className="w-5 h-5" />
             </Button>
 
@@ -650,7 +705,34 @@ export default function App() {
               {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
             </Button>
 
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-muted/30" disabled={currentIndex === -1 || duration === 0}>
+            <Button
+              onClick={() => {
+                if (tracks.length === 0) return
+                if (!audioRef.current) return
+                let nextIndex = currentIndex
+                if (isShuffle) {
+                  const candidates = tracks.map((_, idx) => idx).filter((idx) => idx !== currentIndex)
+                  nextIndex = candidates.length > 0 ? candidates[Math.floor(Math.random() * candidates.length)] : currentIndex
+                } else if (repeatMode === "one") {
+                  nextIndex = currentIndex
+                } else {
+                  nextIndex = currentIndex < tracks.length - 1 ? currentIndex + 1 : (repeatMode === "all" ? 0 : currentIndex)
+                }
+                audioRef.current.src = tracks[nextIndex].url
+                setCurrentIndex(nextIndex)
+                if (isPlaying) {
+                  void audioRef.current.play()
+                  setIsPlaying(true)
+                } else {
+                  setIsPlaying(false)
+                }
+                setActiveSectionIndex(null)
+              }}
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground hover:bg-muted/30"
+              disabled={currentIndex === -1 || duration === 0}
+            >
               <SkipForward className="w-5 h-5" />
             </Button>
 
@@ -913,13 +995,17 @@ export default function App() {
                     <div>
                       <label className="text-xs font-semibold text-muted-foreground mb-2 block">Number of Sections</label>
                       <div className="flex items-center gap-3">
-                        <Button onClick={() => setSectionCount(Math.max(1, sectionCount - 1))} variant="outline" size="sm" className="px-3">
+                        <Button onClick={() => setSectionCount(Math.max(0, sectionCount - 1))} variant="outline" size="sm" className="px-3">
                           −
                         </Button>
                         <input
                           type="number"
+                          min={0}
                           value={sectionCount}
-                          onChange={(e) => setSectionCount(Math.max(1, Number.parseInt(e.target.value) || 1))}
+                          onChange={(e) => {
+                            const v = Number.parseInt(e.target.value)
+                            setSectionCount(Number.isNaN(v) ? 0 : v)
+                          }}
                           className="flex-1 px-3 py-2 bg-input border border-border rounded-lg text-sm text-foreground text-center focus:outline-none focus:ring-2 focus:ring-accent/50"
                         />
                         <Button onClick={() => setSectionCount(sectionCount + 1)} variant="outline" size="sm" className="px-3">
@@ -953,14 +1039,38 @@ export default function App() {
                     className="w-full bg-accent hover:bg-accent/90 text-accent-foreground mt-4"
                     onClick={() => {
                       if (sectionMode === "count") {
+                        if (sectionCount < 1) {
+                          setSectionError("Section count must be at least 1")
+                          return
+                        }
+                        const d = duration || 0
+                        const c = Math.floor(sectionCount)
+                        const per = c > 0 ? d / c : 0
+                        if (per <= 1) {
+                          setSectionError("Sections would be less than 1 second; reduce count or use duration mode")
+                          setSections([])
+                          return
+                        }
+                        setSectionError(null)
                         setSections(SectioningEngine.createSectionsByCount(duration || 0, sectionCount))
                       } else {
+                        if (sectionDuration <= 1) {
+                          setSectionError("Section duration must be greater than 1 second")
+                          return
+                        }
+                        setSectionError(null)
                         setSections(SectioningEngine.createSectionsByDuration(duration || 0, sectionDuration))
                       }
                     }}
                   >
                     Generate Sections
                   </Button>
+                  {sectionError && (
+                    <p className="text-xs text-red-500 mt-2 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {sectionError}
+                    </p>
+                  )}
                 </div>
 
                 <div className="pt-4 border-t border-border">
@@ -969,9 +1079,11 @@ export default function App() {
                     {sections.map((section, index) => (
                       <div
                         key={`${section.startTime}-${section.endTime}-${index}`}
-                        className="p-3 rounded-lg bg-muted/20 border border-border/50 hover:border-accent/50 hover:bg-muted/30 transition-colors cursor-pointer group"
+                        className={`p-3 rounded-lg border transition-colors cursor-pointer group ${activeSectionIndex === index ? "bg-accent/10 border-accent" : "bg-muted/20 border-border/50 hover:border-accent/50 hover:bg-muted/30"}`}
                         onClick={() => {
                           if (audioRef.current) {
+                            const next = activeSectionIndex === index ? null : index
+                            setActiveSectionIndex(next)
                             audioRef.current.currentTime = section.startTime
                           }
                         }}

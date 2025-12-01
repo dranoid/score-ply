@@ -22,6 +22,9 @@ export class SectioningEngine {
 
         const sectionCount = Math.floor(count);
         const sectionDuration = duration / sectionCount;
+        if (sectionDuration <= 1) {
+            return [];
+        }
         const sections: AudioSection[] = [];
 
         for (let i = 0; i < sectionCount; i++) {
@@ -54,6 +57,9 @@ export class SectioningEngine {
             return [];
         }
 
+        if (sectionDuration <= 1) {
+            return [];
+        }
         const count = Math.ceil(duration / sectionDuration);
         const sections: AudioSection[] = [];
 
