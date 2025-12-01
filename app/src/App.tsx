@@ -1,12 +1,15 @@
 import type React from "react"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "./components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs"
 import { Slider } from "./components/ui/slider"
 import { Card } from "./components/ui/card"
 import { Checkbox } from "./components/ui/checkbox"
 import { MetadataExtractor } from "./utils/MetadataExtractor"
-import type { Track } from "./types"
+import { SectioningEngine } from "./utils/SectioningEngine"
+import { TimeMath } from "./utils/TimeMath"
+import { LoopEngine } from "./utils/LoopEngine"
+import type { Track, AudioSection } from "./types"
 import {
   Home,
   Search,
@@ -21,6 +24,7 @@ import {
   Settings,
   RotateCw,
   Shuffle,
+  AlertCircle,
 } from "lucide-react"
 
 export default function App() {
@@ -40,13 +44,179 @@ export default function App() {
   const [tracks, setTracks] = useState<Track[]>([])
   const [currentIndex, setCurrentIndex] = useState<number>(-1)
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+  const [sectionMode, setSectionMode] = useState<"count" | "duration">("count")
+  const [sectionCount, setSectionCount] = useState<number>(4)
+  const [sectionDuration, setSectionDuration] = useState<number>(30)
+  const [sections, setSections] = useState<AudioSection[]>([])
+  const [loopStart, setLoopStart] = useState("00:00")
+  const [loopEnd, setLoopEnd] = useState("00:30")
+  const [loopStartError, setLoopStartError] = useState<string | null>(null)
+  const [loopEndError, setLoopEndError] = useState<string | null>(null)
+  const [loopRangeError, setLoopRangeError] = useState<string | null>(null)
+  const [useHoursFormat, setUseHoursFormat] = useState(false)
+  const [isSliderHover, setIsSliderHover] = useState(false)
+  const [isSliderFocus, setIsSliderFocus] = useState(false)
+  const [isMouseInteracting, setIsMouseInteracting] = useState(false)
+  const [hoveredTime, setHoveredTime] = useState(0)
+  const [draggingMarker, setDraggingMarker] = useState<"start" | "end" | null>(null)
+  const [isStartHover, setIsStartHover] = useState(false)
+  const [isEndHover, setIsEndHover] = useState(false)
+  const sliderContainerRef = useRef<HTMLDivElement>(null)
+
+  const sanitizeTimestampInput = (raw: string): string => {
+    const s = raw.replace(/[^\d:]/g, "")
+    const parts = s.split(":")
+    // Allow up to two colons (hh:mm:ss); merge extras
+    const safe = parts.slice(0, 3)
+    if (safe.length === 1) return safe[0]
+    if (safe.length === 2) {
+      const [m, sec] = safe
+      return `${m}${":"}${sec.slice(0, 2)}`
+    }
+    // hh:mm:ss
+    const [h, m, sec] = safe
+    return `${h.slice(0, 3)}:${m.slice(0, 2)}:${sec.slice(0, 2)}`
+  }
+
+  const parseTimestampText = (value: string, requireHours?: boolean): number | null => {
+    const s = value.trim()
+    if (!s) return null
+    const parts = s.split(":")
+    if (parts.length === 2 && !requireHours) {
+      const [mmText, ssText] = parts
+      if (!/^\d{1,}$/.test(mmText) || !/^\d{1,2}$/.test(ssText)) return null
+      const mm = Number.parseInt(mmText, 10)
+      const ss = Number.parseInt(ssText, 10)
+      if (ss >= 60) return null
+      return TimeMath.parseTimestamp(mm, ss)
+    }
+    if (parts.length === 3) {
+      const [hhText, mmText, ssText] = parts
+      if (!/^\d{1,}$/.test(hhText) || !/^\d{1,2}$/.test(mmText) || !/^\d{1,2}$/.test(ssText)) return null
+      const hh = Number.parseInt(hhText, 10)
+      const mm = Number.parseInt(mmText, 10)
+      const ss = Number.parseInt(ssText, 10)
+      if (mm >= 60 || ss >= 60) return null
+      return hh * 3600 + mm * 60 + ss
+    }
+    return null
+  }
+
+  const validateLoopInputs = useCallback((startText: string, endText: string) => {
+    const s = parseTimestampText(startText, useHoursFormat)
+    const e = parseTimestampText(endText, useHoursFormat)
+    const formatMsg = useHoursFormat
+      ? "Use HH:MM:SS; minutes/seconds < 60"
+      : "Use MM:SS (or HH:MM:SS); seconds < 60"
+
+    const invalidStart = s == null
+    const invalidEnd = e == null
+
+    setLoopStartError(
+      invalidStart ? formatMsg : duration > 0 && s! > duration ? "Start exceeds track duration" : null
+    )
+    setLoopEndError(
+      invalidEnd ? formatMsg : duration > 0 && e! > duration ? "End time cannot exceed track duration" : null
+    )
+
+    if (!invalidStart && !invalidEnd && duration > 0) {
+      const v = LoopEngine.validateLoopBounds(s!, e!, duration)
+      setLoopRangeError(v.valid ? null : v.error || null)
+    } else {
+      setLoopRangeError(null)
+    }
+  }, [useHoursFormat, duration])
+
+  const updateMarkersFromClientX = useCallback((clientX: number) => {
+    if (!duration || !draggingMarker || !sliderContainerRef.current) return
+    const rect = sliderContainerRef.current.getBoundingClientRect()
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    const t = duration * pct
+    const sCur = parseTimestampText(loopStart, useHoursFormat) ?? 0
+    const eCur = parseTimestampText(loopEnd, useHoursFormat) ?? Math.max(sCur, 0)
+    const w = Math.max(0, eCur - sCur)
+    const clamp = (x: number) => Math.max(0, Math.min(duration, x))
+    const fmt = (x: number) => (useHoursFormat || duration >= 3600 ? TimeMath.formatTimeHMS(x) : TimeMath.formatTime(x))
+    if (draggingMarker === "start") {
+      const ns = clamp(t)
+      let s1 = ns
+      let e1 = eCur
+      if (ns > eCur) {
+        e1 = clamp(ns + w)
+        if (e1 - s1 < w) {
+          s1 = Math.max(0, e1 - w)
+        }
+      }
+      const sText = fmt(s1)
+      const eText = fmt(e1)
+      setLoopStart(sText)
+      setLoopEnd(eText)
+      validateLoopInputs(sText, eText)
+    } else {
+      const ne = clamp(t)
+      let e1 = ne
+      let s1 = sCur
+      if (ne < sCur) {
+        s1 = Math.max(0, ne - w)
+        if (e1 - s1 < w) {
+          e1 = Math.min(duration, s1 + w)
+        }
+      }
+      const sText = fmt(s1)
+      const eText = fmt(e1)
+      setLoopStart(sText)
+      setLoopEnd(eText)
+      validateLoopInputs(sText, eText)
+    }
+  }, [draggingMarker, duration, useHoursFormat, loopStart, loopEnd, validateLoopInputs])
+
+  useEffect(() => {
+    if (!draggingMarker) return
+    const move = (e: PointerEvent) => updateMarkersFromClientX(e.clientX)
+    const up = () => {
+      setIsMouseInteracting(false)
+      setDraggingMarker(null)
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+    return () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+    }
+  }, [draggingMarker, duration, useHoursFormat, loopStart, loopEnd, updateMarkersFromClientX])
+
+  useEffect(() => {
+    if (draggingMarker) {
+      document.body.style.cursor = "ew-resize"
+    } else {
+      document.body.style.cursor = ""
+    }
+    return () => {
+      document.body.style.cursor = ""
+    }
+  }, [draggingMarker])
 
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
 
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime)
-    const handleLoadedMetadata = () => setDuration(audio.duration)
+    const handleTimeUpdate = () => {
+      setCurrentTime(audio.currentTime)
+      if (!isLoopEnabled) return
+      const s = parseTimestampText(loopStart, useHoursFormat)
+      const e = parseTimestampText(loopEnd, useHoursFormat)
+      if (s == null || e == null) return
+      const v = LoopEngine.validateLoopBounds(s, e, duration)
+      if (!v.valid) return
+      if (LoopEngine.shouldLoop(audio.currentTime, e)) {
+        audio.currentTime = LoopEngine.getLoopStartTime(s)
+      }
+    }
+    const handleLoadedMetadata = () => {
+      setDuration(audio.duration)
+      setUseHoursFormat(audio.duration >= 3600)
+      validateLoopInputs(loopStart, loopEnd)
+    }
 
     audio.addEventListener("timeupdate", handleTimeUpdate)
     audio.addEventListener("loadedmetadata", handleLoadedMetadata)
@@ -55,13 +225,19 @@ export default function App() {
       audio.removeEventListener("timeupdate", handleTimeUpdate)
       audio.removeEventListener("loadedmetadata", handleLoadedMetadata)
     }
-  }, [])
+  }, [isLoopEnabled, loopStart, loopEnd, duration, useHoursFormat, validateLoopInputs])
 
   const handlePlayPause = () => {
     if (audioRef.current) {
       if (isPlaying) {
         audioRef.current.pause()
       } else {
+        if (isLoopEnabled) {
+          const s = parseTimestampText(loopStart, useHoursFormat)
+          if (s != null && (duration === 0 || s < duration)) {
+            audioRef.current.currentTime = LoopEngine.getLoopStartTime(s)
+          }
+        }
         void audioRef.current.play()
       }
       setIsPlaying(!isPlaying)
@@ -97,10 +273,25 @@ export default function App() {
   }
 
   const handleProgressChange = (value: number[]) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = value[0]
-      setCurrentTime(value[0])
+    if (!audioRef.current) return
+    const newTime = value[0]
+    if (isLoopEnabled) {
+      const s = parseTimestampText(loopStart, useHoursFormat)
+      const e = parseTimestampText(loopEnd, useHoursFormat)
+      if (s != null && e != null && duration > 0) {
+        const v = LoopEngine.validateLoopBounds(s, e, duration)
+        if (v.valid) {
+          if (newTime < s || newTime > e) {
+            const startTime = LoopEngine.getLoopStartTime(s)
+            audioRef.current.currentTime = startTime
+            setCurrentTime(startTime)
+            return
+          }
+        }
+      }
     }
+    audioRef.current.currentTime = newTime
+    setCurrentTime(newTime)
   }
 
   const handleVolumeChange = (value: number[]) => {
@@ -122,6 +313,75 @@ export default function App() {
     if (repeatMode === "off") setRepeatMode("all")
     else if (repeatMode === "all") setRepeatMode("one")
     else setRepeatMode("off")
+  }
+
+  const handleLoopStartChange = (value: string) => {
+    setLoopStart(sanitizeTimestampInput(value))
+  }
+
+  const handleLoopEndChange = (value: string) => {
+    setLoopEnd(sanitizeTimestampInput(value))
+  }
+
+  const normalizeTimestampOnBlur = (value: string, requireHours?: boolean): string | null => {
+    const parts = value.trim().split(":")
+    if (parts.length === 2 && !requireHours) {
+      const [mText, sText] = parts
+      if (!/^\d{1,}$/.test(mText) || !/^\d{1,2}$/.test(sText)) return null
+      const mm = mText
+      const ss = Number.parseInt(sText, 10)
+      if (!Number.isFinite(ss) || ss >= 60) return null
+      const mmPadded = mm.length < 2 ? mm.padStart(2, "0") : mm
+      const ssPadded = sText.padStart(2, "0")
+      return `${mmPadded}:${ssPadded}`
+    }
+    if (parts.length === 3) {
+      const [hText, mText, sText] = parts
+      if (!/^\d{1,}$/.test(hText) || !/^\d{1,2}$/.test(mText) || !/^\d{1,2}$/.test(sText)) return null
+      const mm = Number.parseInt(mText, 10)
+      const ss = Number.parseInt(sText, 10)
+      if (mm >= 60 || ss >= 60) return null
+      const hPad = hText
+      const mPad = mText.padStart(2, "0")
+      const sPad = sText.padStart(2, "0")
+      return `${hPad}:${mPad}:${sPad}`
+    }
+    return null
+  }
+
+  const preventColonDeleteKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    const input = e.currentTarget
+    const value = input.value
+    const start = input.selectionStart ?? 0
+    const end = input.selectionEnd ?? start
+    if (start !== end) return
+    if (e.key === ":") {
+      e.preventDefault()
+      return
+    }
+    if (e.key === "Backspace") {
+      if (start > 0 && value[start - 1] === ":") {
+        e.preventDefault()
+      }
+    } else if (e.key === "Delete") {
+      if (start < value.length && value[start] === ":") {
+        e.preventDefault()
+      }
+    }
+  }
+
+  const handleLoopStartPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault()
+    const masked = sanitizeTimestampInput(e.clipboardData.getData("text"))
+    setLoopStart(masked)
+    validateLoopInputs(masked, loopEnd)
+  }
+
+  const handleLoopEndPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault()
+    const masked = sanitizeTimestampInput(e.clipboardData.getData("text"))
+    setLoopEnd(masked)
+    validateLoopInputs(loopStart, masked)
   }
 
   return (
@@ -260,16 +520,113 @@ export default function App() {
           <audio ref={audioRef} />
 
           <div className="flex items-center gap-4 mb-6">
-            <span className="text-sm text-muted-foreground min-w-fit">{formatTime(currentTime)}</span>
-            <Slider
-              value={[currentTime]}
-              min={0}
-              max={duration || 0}
-              step={0.1}
-              onValueChange={handleProgressChange}
-              className="flex-1"
-            />
-            <span className="text-sm text-muted-foreground min-w-fit">{formatTime(duration)}</span>
+            <span className="text-sm text-muted-foreground inline-block w-[8ch] text-center font-mono select-none">{formatTime(currentTime)}</span>
+            <div
+              className="relative flex-1"
+              ref={sliderContainerRef}
+              onMouseEnter={(e) => {
+                setIsSliderHover(true)
+                const rect = e.currentTarget.getBoundingClientRect()
+                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+                setHoveredTime((duration || 0) * pct)
+              }}
+              onMouseMove={(e) => {
+                if (!duration) return
+                const rect = e.currentTarget.getBoundingClientRect()
+                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+                setHoveredTime(duration * pct)
+              }}
+              onMouseLeave={() => {
+                setIsSliderHover(false)
+                setIsMouseInteracting(false)
+              }}
+              onPointerMove={(e) => {
+                if (!duration || !draggingMarker) return
+                updateMarkersFromClientX(e.clientX)
+              }}
+              onPointerDown={() => setIsMouseInteracting(true)}
+              onPointerUp={() => {
+                setIsMouseInteracting(false)
+                setDraggingMarker(null)
+              }}
+            >
+              <Slider
+                value={[currentTime]}
+                min={0}
+                max={duration || 0}
+                step={0.1}
+                onValueChange={handleProgressChange}
+                disabled={duration === 0 || currentIndex === -1}
+                onFocus={() => {
+                  setIsSliderFocus(true)
+                  setIsMouseInteracting(false)
+                }}
+                onBlur={() => setIsSliderFocus(false)}
+                aria-label="Playback position"
+                aria-valuetext={duration >= 3600 ? TimeMath.formatTimeHMS(currentTime) : TimeMath.formatTime(currentTime)}
+                className="w-full"
+              />
+              {duration > 0 && (() => {
+                const s = parseTimestampText(loopStart, useHoursFormat)
+                const e = parseTimestampText(loopEnd, useHoursFormat)
+                const sp = s != null ? Math.max(0, Math.min(100, (s / duration) * 100)) : 0
+                const ep = e != null ? Math.max(0, Math.min(100, (e / duration) * 100)) : 0
+                const fmt = duration >= 3600 ? TimeMath.formatTimeHMS : TimeMath.formatTime
+                return (
+                  <>
+                    <div
+                      className={`absolute top-0 w-3.5 h-3.5 rounded-full border border-border bg-accent shadow z-10 ${duration === 0 ? "pointer-events-none opacity-50" : "cursor-ew-resize"}`}
+                      style={{ left: `${sp}%`, transform: "translate(-50%, -200%)" }}
+                      onPointerDown={() => setDraggingMarker("start")}
+                      onMouseEnter={() => setIsStartHover(true)}
+                      onMouseLeave={() => setIsStartHover(false)}
+                      aria-label="Loop start"
+                    >
+                      {(draggingMarker === "start" || isStartHover) && (
+                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-1 rounded-md bg-card border border-border text-xs text-foreground shadow pointer-events-none select-none z-20">
+                          Start: {s != null ? fmt(s) : loopStart}
+                        </div>
+                      )}
+                      {isLoopEnabled && (
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-[2px] h-8 bg-border" />
+                      )}
+                    </div>
+                    <div
+                      className={`absolute top-0 w-3.5 h-3.5 rounded-full border border-border bg-accent shadow z-10 ${duration === 0 ? "pointer-events-none opacity-50" : "cursor-ew-resize"}`}
+                      style={{ left: `${ep}%`, transform: "translate(-50%, -200%)" }}
+                      onPointerDown={() => setDraggingMarker("end")}
+                      onMouseEnter={() => setIsEndHover(true)}
+                      onMouseLeave={() => setIsEndHover(false)}
+                      aria-label="Loop end"
+                    >
+                      {(draggingMarker === "end" || isEndHover) && (
+                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-2 py-1 rounded-md bg-card border border-border text-xs text-foreground shadow pointer-events-none select-none z-20">
+                          End: {e != null ? fmt(e) : loopEnd}
+                        </div>
+                      )}
+                      {isLoopEnabled && (
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-[2px] h-8 bg-border" />
+                      )}
+                    </div>
+                  </>
+                )
+              })()}
+              {(isSliderHover && !isStartHover && !isEndHover && !draggingMarker) || (isSliderFocus && !isMouseInteracting) ? (
+                <div
+                  className="absolute -top-6 px-2 py-1 rounded-md bg-card border border-border text-xs text-foreground shadow select-none"
+                  style={{
+                    left: `${Math.max(0, Math.min(100, ((isSliderHover ? hoveredTime : currentTime) / duration) * 100))}%`,
+                    transform: "translateX(-50%)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {duration >= 3600
+                    ? TimeMath.formatTimeHMS(isSliderHover ? hoveredTime : currentTime)
+                    : TimeMath.formatTime(isSliderHover ? hoveredTime : currentTime)}
+                </div>
+              ) : null}
+            </div>
+            <span className="text-sm text-muted-foreground inline-block w-[8ch] text-center font-mono select-none">{formatTime(duration)}</span>
           </div>
 
           <div className="relative flex items-center justify-center gap-4 mb-6">
@@ -280,19 +637,20 @@ export default function App() {
               className={`text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors ${
                 isShuffle ? "text-accent" : ""
               }`}
+              disabled={currentIndex === -1 || duration === 0}
             >
               <Shuffle className="w-5 h-5" />
             </Button>
 
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-muted/30">
+            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-muted/30" disabled={currentIndex === -1 || duration === 0}>
               <SkipBack className="w-5 h-5" />
             </Button>
 
-            <Button onClick={handlePlayPause} size="icon" className="w-14 h-14 rounded-full bg-accent hover:bg-accent/90 text-accent-foreground shadow-lg">
+            <Button onClick={handlePlayPause} size="icon" className="w-14 h-14 rounded-full bg-accent hover:bg-accent/90 text-accent-foreground shadow-lg" disabled={currentIndex === -1 || duration === 0}>
               {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
             </Button>
 
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-muted/30">
+            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-muted/30" disabled={currentIndex === -1 || duration === 0}>
               <SkipForward className="w-5 h-5" />
             </Button>
 
@@ -303,6 +661,7 @@ export default function App() {
               className={`text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors relative ${
                 repeatMode !== "off" ? "text-accent" : ""
               }`}
+              disabled={currentIndex === -1 || duration === 0}
             >
               <RotateCw className="w-5 h-5" />
               {repeatMode === "one" && (
@@ -313,7 +672,7 @@ export default function App() {
             </Button>
             <div className="absolute right-0 flex items-center gap-3">
               <Volume2 className="w-4 h-4 text-muted-foreground" />
-              <Slider value={[volume]} min={0} max={100} step={1} onValueChange={handleVolumeChange} className="w-32" />
+              <Slider value={[volume]} min={0} max={100} step={1} onValueChange={handleVolumeChange} disabled={currentIndex === -1 || duration === 0} className="w-32" />
               <span className="text-xs text-muted-foreground min-w-fit">{volume}%</span>
             </div>
           </div>
@@ -338,7 +697,7 @@ export default function App() {
               <TabsTrigger value="sectioning" className="text-sm">Sections</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="loop" className="flex-1 px-6 py-6 space-y-6">
+            <TabsContent value="loop" className="flex-1 px-6 py-6 space-y-6 overflow-y-auto">
               <div>
                 <h4 className="font-semibold text-sm mb-4 flex items-center gap-2">
                   <Settings className="w-4 h-4 text-accent" />
@@ -346,49 +705,309 @@ export default function App() {
                 </h4>
 
                 <div className="space-y-4">
-                  <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/30 cursor-pointer transition-colors">
+                  <label
+                    className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
+                      duration === 0 || !!loopStartError || !!loopEndError || !!loopRangeError
+                        ? "cursor-not-allowed"
+                        : "cursor-pointer hover:bg-muted/30"
+                    }`}
+                  >
                     <Checkbox
                       checked={isLoopEnabled}
-                      onCheckedChange={(checked) => setIsLoopEnabled(!!checked)}
+                      onCheckedChange={(checked) => {
+                        const enable = !!checked
+                        if (!enable) {
+                          setIsLoopEnabled(false)
+                          return
+                        }
+                        const s = parseTimestampText(loopStart, useHoursFormat)
+                        const e = parseTimestampText(loopEnd, useHoursFormat)
+                        const formatMsg = useHoursFormat
+                          ? "Use HH:MM:SS; minutes/seconds < 60"
+                          : "Use MM:SS (or HH:MM:SS); seconds < 60"
+                        setLoopStartError(s == null ? formatMsg : null)
+                        setLoopEndError(e == null ? formatMsg : null)
+                        if (s == null || e == null || duration <= 0) {
+                          setIsLoopEnabled(false)
+                          return
+                        }
+                        const v = LoopEngine.validateLoopBounds(s, e, duration)
+                        setLoopRangeError(v.valid ? null : v.error || null)
+                        if (!v.valid) {
+                          setIsLoopEnabled(false)
+                          return
+                        }
+                        setIsLoopEnabled(true)
+                        if (audioRef.current) {
+                          audioRef.current.currentTime = LoopEngine.getLoopStartTime(s)
+                        }
+                      }}
+                      disabled={
+                        duration === 0 || !!loopStartError || !!loopEndError || !!loopRangeError
+                      }
                       className="border-border"
                     />
                     <span className="text-sm font-medium">Enable Loop</span>
                   </label>
 
-                  {isLoopEnabled && (
-                    <div className="space-y-4 pt-2 border-t border-border">
+                  <div className="space-y-4 pt-2 border-t border-border">
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground mb-2 block">Loop Start</label>
                         <input
                           type="text"
-                          placeholder="00:00"
-                          className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                          placeholder={useHoursFormat || duration >= 3600 ? "00:00:00" : "00:00"}
+                          value={loopStart}
+                          onChange={(e) => handleLoopStartChange(e.target.value)}
+                          onKeyDown={preventColonDeleteKeyDown}
+                          onPaste={handleLoopStartPaste}
+                          onBlur={(e) => {
+                            const n = normalizeTimestampOnBlur(e.target.value, useHoursFormat)
+                            if (n) setLoopStart(n)
+                            validateLoopInputs(n ?? e.target.value, loopEnd)
+                            const s = parseTimestampText(n ?? e.target.value, useHoursFormat)
+                            if (audioRef.current && s != null && (duration === 0 || s < duration)) {
+                              const startTime = LoopEngine.getLoopStartTime(s)
+                              audioRef.current.currentTime = startTime
+                              setCurrentTime(startTime)
+                            }
+                          }}
+                          className={`w-full px-3 py-2 bg-input border rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 transition-colors ${
+                            loopStartError ? "border-red-500/50 focus:ring-red-500/50" : "border-border focus:ring-accent/50"
+                          }`}
                         />
+                        {loopStartError ? (
+                          <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            {loopStartError}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-1">Start of loop segment</p>
+                        )}
                       </div>
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground mb-2 block">Loop End</label>
                         <input
                           type="text"
-                          placeholder="00:30"
-                          className="w-full px-3 py-2 bg-input border border-border rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                          placeholder={useHoursFormat || duration >= 3600 ? "00:00:00" : "00:30"}
+                          value={loopEnd}
+                          onChange={(e) => handleLoopEndChange(e.target.value)}
+                          onKeyDown={preventColonDeleteKeyDown}
+                          onPaste={handleLoopEndPaste}
+                          onBlur={(e) => {
+                            const n = normalizeTimestampOnBlur(e.target.value, useHoursFormat)
+                            if (n) setLoopEnd(n)
+                            validateLoopInputs(loopStart, n ?? e.target.value)
+                          }}
+                          className={`w-full px-3 py-2 bg-input border rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 transition-colors ${
+                            loopEndError ? "border-red-500/50 focus:ring-red-500/50" : "border-border focus:ring-accent/50"
+                          }`}
                         />
+                        {loopEndError ? (
+                          <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            {loopEndError}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-1">End of loop segment</p>
+                        )}
                       </div>
+
+                      {loopRangeError && (
+                        <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                          <p className="text-xs text-red-500">{loopRangeError}</p>
+                        </div>
+                      )}
+
+                      <div className="mt-6 p-4 bg-muted/20 rounded-lg border border-border/50">
+                        <p className="text-xs font-semibold text-muted-foreground mb-3">Loop Range</p>
+                        {duration > 0 ? (
+                          (() => {
+                            const s = parseTimestampText(loopStart, useHoursFormat)
+                            const e = parseTimestampText(loopEnd, useHoursFormat)
+                            const sp = s != null ? Math.max(0, Math.min(100, (s / duration) * 100)) : 0
+                            const ep = e != null ? Math.max(0, Math.min(100, (e / duration) * 100)) : 0
+                            const w = Math.max(0, ep - sp)
+                            return (
+                              <div className="h-1 bg-muted rounded-full relative overflow-hidden">
+                                <div className="h-full bg-accent/30 absolute" style={{ left: `${0}%`, width: `${sp}%` }} />
+                                <div className="h-full bg-accent absolute" style={{ left: `${sp}%`, width: `${w}%` }} />
+                              </div>
+                            )
+                          })()
+                        ) : (
+                          <div className="h-1 bg-muted rounded-full" />
+                        )}
+                        <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                          {(() => {
+                            const s = parseTimestampText(loopStart, useHoursFormat)
+                            const e = parseTimestampText(loopEnd, useHoursFormat)
+                            const fmt = duration >= 3600 ? TimeMath.formatTimeHMS : TimeMath.formatTime
+                            const ls = s != null ? fmt(s) : loopStart
+                            const le = e != null ? fmt(e) : loopEnd
+                            return (
+                              <>
+                                <span className="select-none">{ls}</span>
+                                <span className="select-none">{le}</span>
+                              </>
+                            )
+                          })()}
+                        </div>
+                      </div>
+                      <label className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/30 cursor-pointer transition-colors">
+                        <Checkbox
+                          checked={useHoursFormat}
+                          onCheckedChange={(checked) => setUseHoursFormat(!!checked)}
+                          disabled={duration === 0}
+                          className="border-border"
+                        />
+                        <span className="text-sm font-medium">Use hours format</span>
+                      </label>
                     </div>
-                  )}
                 </div>
               </div>
             </TabsContent>
 
-            <TabsContent value="sectioning" className="flex-1 px-6 py-6 space-y-6">
-              <div>
-                <h4 className="font-semibold text-sm mb-4 flex items-center gap-2">
-                  <Music className="w-4 h-4 text-accent" />
-                  Sections
-                </h4>
+            <TabsContent value="sectioning" className="flex-1 px-6 py-6 space-y-6 overflow-y-auto">
+              <div className="space-y-6">
+                <div>
+                  <h4 className="font-semibold text-sm mb-4 flex items-center gap-2">
+                    <Music className="w-4 h-4 text-accent" />
+                    Create Sections
+                  </h4>
 
-                <div className="space-y-3 text-center py-8 text-muted-foreground">
-                  <p className="text-sm">No sections created yet</p>
-                  <Button className="w-full bg-accent hover:bg-accent/90 text-accent-foreground mt-4">Add Section</Button>
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-3 p-3 rounded-lg bg-muted/20 border border-border cursor-pointer hover:bg-muted/30 transition-colors">
+                      <input
+                        type="radio"
+                        name="sectionMode"
+                        value="count"
+                        checked={sectionMode === "count"}
+                        onChange={() => setSectionMode("count")}
+                        className="w-4 h-4 accent-accent"
+                      />
+                      <div>
+                        <span className="text-sm font-medium">By Count</span>
+                        <p className="text-xs text-muted-foreground">Split track into equal sections</p>
+                      </div>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 rounded-lg bg-muted/20 border border-border cursor-pointer hover:bg-muted/30 transition-colors">
+                      <input
+                        type="radio"
+                        name="sectionMode"
+                        value="duration"
+                        checked={sectionMode === "duration"}
+                        onChange={() => setSectionMode("duration")}
+                        className="w-4 h-4 accent-accent"
+                      />
+                      <div>
+                        <span className="text-sm font-medium">By Duration</span>
+                        <p className="text-xs text-muted-foreground">Fixed length sections</p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-border space-y-4">
+                  {sectionMode === "count" ? (
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground mb-2 block">Number of Sections</label>
+                      <div className="flex items-center gap-3">
+                        <Button onClick={() => setSectionCount(Math.max(1, sectionCount - 1))} variant="outline" size="sm" className="px-3">
+                          −
+                        </Button>
+                        <input
+                          type="number"
+                          value={sectionCount}
+                          onChange={(e) => setSectionCount(Math.max(1, Number.parseInt(e.target.value) || 1))}
+                          className="flex-1 px-3 py-2 bg-input border border-border rounded-lg text-sm text-foreground text-center focus:outline-none focus:ring-2 focus:ring-accent/50"
+                        />
+                        <Button onClick={() => setSectionCount(sectionCount + 1)} variant="outline" size="sm" className="px-3">
+                          +
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">Will create {sectionCount} equal sections</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground mb-2 block">Section Duration (seconds)</label>
+                      <div className="flex items-center gap-3">
+                        <Button onClick={() => setSectionDuration(Math.max(1, sectionDuration - 5))} variant="outline" size="sm" className="px-3">
+                          −
+                        </Button>
+                        <input
+                          type="number"
+                          value={sectionDuration}
+                          onChange={(e) => setSectionDuration(Math.max(1, Number.parseInt(e.target.value) || 1))}
+                          className="flex-1 px-3 py-2 bg-input border border-border rounded-lg text-sm text-foreground text-center focus:outline-none focus:ring-2 focus:ring-accent/50"
+                        />
+                        <Button onClick={() => setSectionDuration(sectionDuration + 5)} variant="outline" size="sm" className="px-3">
+                          +
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">Each section will be {sectionDuration}s long</p>
+                    </div>
+                  )}
+
+                  <Button
+                    className="w-full bg-accent hover:bg-accent/90 text-accent-foreground mt-4"
+                    onClick={() => {
+                      if (sectionMode === "count") {
+                        setSections(SectioningEngine.createSectionsByCount(duration || 0, sectionCount))
+                      } else {
+                        setSections(SectioningEngine.createSectionsByDuration(duration || 0, sectionDuration))
+                      }
+                    }}
+                  >
+                    Generate Sections
+                  </Button>
+                </div>
+
+                <div className="pt-4 border-t border-border">
+                  <h5 className="text-xs font-semibold text-muted-foreground mb-3">Sections ({sections.length})</h5>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {sections.map((section, index) => (
+                      <div
+                        key={`${section.startTime}-${section.endTime}-${index}`}
+                        className="p-3 rounded-lg bg-muted/20 border border-border/50 hover:border-accent/50 hover:bg-muted/30 transition-colors cursor-pointer group"
+                        onClick={() => {
+                          if (audioRef.current) {
+                            audioRef.current.currentTime = section.startTime
+                          }
+                        }}
+                      >
+                        <div className="flex items-start justify-between mb-1">
+                          <span className="text-sm font-medium">{section.label}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSections((prev) => prev.filter((_, i) => i !== index))
+                            }}
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                        <div className="flex gap-2 text-xs text-muted-foreground">
+                          {duration >= 3600 ? (
+                            <>
+                              <span>{TimeMath.formatTimeHMS(section.startTime)}</span>
+                              <span>→</span>
+                              <span>{TimeMath.formatTimeHMS(section.endTime)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>{TimeMath.formatTime(section.startTime)}</span>
+                              <span>→</span>
+                              <span>{TimeMath.formatTime(section.endTime)}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </TabsContent>

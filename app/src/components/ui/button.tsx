@@ -2,7 +2,7 @@ import * as React from "react"
 import { cn } from "./utils"
 
 type ButtonVariant = "default" | "ghost" | "outline"
-type ButtonSize = "default" | "icon"
+type ButtonSize = "default" | "sm" | "icon"
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -11,7 +11,7 @@ export interface ButtonProps
 }
 
 const baseClasses =
-  "inline-flex items-center justify-center gap-2 font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+  "inline-flex items-center justify-center gap-2 font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 disabled:pointer-events-none cursor-pointer disabled:cursor-not-allowed"
 
 const variantClasses: Record<ButtonVariant, string> = {
   default: "bg-accent text-accent-foreground hover:bg-accent/90",
@@ -23,6 +23,7 @@ const variantClasses: Record<ButtonVariant, string> = {
 
 const sizeClasses: Record<ButtonSize, string> = {
   default: "h-10 px-4 py-2",
+  sm: "h-8 px-3",
   icon: "h-10 w-10",
 }
 

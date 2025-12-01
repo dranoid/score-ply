@@ -28,7 +28,7 @@ export class MetadataExtractor {
 
       return metadata;
     } catch (error) {
-      console.error("Error extracting metadata:", error);
+      console.warn("Error extracting metadata:", error as unknown);
       return {
         title: file.name.replace(/\.[^/.]+$/, ""),
       };

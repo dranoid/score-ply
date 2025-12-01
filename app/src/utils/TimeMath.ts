@@ -12,6 +12,17 @@ export class TimeMath {
             .padStart(2, "0")}`;
     }
 
+    static formatTimeHMS(seconds: number): string {
+        if (!Number.isFinite(seconds) || seconds < 0) return "00:00:00";
+        const totalSeconds = Math.floor(seconds);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const secs = totalSeconds % 60;
+        return `${hours.toString().padStart(2, "0")}:${minutes
+            .toString()
+            .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    }
+
     static clampTime(time: number, min: number, max: number): number {
         if (!Number.isFinite(time)) return min;
         return Math.max(min, Math.min(max, time));

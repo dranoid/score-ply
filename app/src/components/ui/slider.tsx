@@ -11,13 +11,16 @@ export const Slider = React.forwardRef<
   return (
     <SliderPrimitive.Root
       ref={ref}
-      className={cn("relative flex w-full touch-none select-none items-center cursor-pointer", className)}
+      className={cn(
+        `relative flex w-full touch-none select-none items-center ${props.disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
+        className
+      )}
       {...props}
     >
-      <SliderPrimitive.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-muted">
+      <SliderPrimitive.Track className={`relative h-1.5 w-full grow overflow-hidden rounded-full bg-muted ${props.disabled ? "pointer-events-none" : ""}`}>
         <SliderPrimitive.Range className="absolute h-full bg-accent" />
       </SliderPrimitive.Track>
-      <SliderPrimitive.Thumb className="block h-3.5 w-3.5 rounded-full border border-border bg-card shadow transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+      <SliderPrimitive.Thumb className={`block h-3.5 w-3.5 rounded-full border border-border bg-card shadow transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${props.disabled ? "pointer-events-none" : ""}`} />
     </SliderPrimitive.Root>
   )
 })
