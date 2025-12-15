@@ -9,16 +9,19 @@ import { MetadataExtractor } from "./utils/MetadataExtractor"
 import { SectioningEngine } from "./utils/SectioningEngine"
 import { TimeMath } from "./utils/TimeMath"
 import { LoopEngine } from "./utils/LoopEngine"
+import { TempoEngine } from "./utils/TempoEngine"
+import { BPMDetector } from "./utils/BPMDetector"
+import { ToneAudioManager } from "./utils/ToneAudioManager"
+import { TempoControls } from "./components/TempoControls"
+import { Sidebar } from "./components/Sidebar"
+import { VolumeControl } from "./components/VolumeControl"
 import type { Track, AudioSection } from "./types"
 import {
-  Home,
-  Search,
   Music,
   Play,
   Pause,
   SkipBack,
   SkipForward,
-  Volume2,
   X,
   Upload,
   Settings,
@@ -35,12 +38,14 @@ export default function App() {
   const [isLoopEnabled, setIsLoopEnabled] = useState(false)
   const [activeTab, setActiveTab] = useState("loop")
   const [showControls, setShowControls] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("off")
   const [isShuffle, setIsShuffle] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const headerFileInputRef = useRef<HTMLInputElement>(null)
   const modalFileInputRef = useRef<HTMLInputElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
+  const toneManagerRef = useRef<ToneAudioManager | null>(null)
   const [tracks, setTracks] = useState<Track[]>([])
   const [currentIndex, setCurrentIndex] = useState<number>(-1)
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
@@ -65,6 +70,11 @@ export default function App() {
   const [isPlayThumbHover, setIsPlayThumbHover] = useState(false)
   const [focusOrigin, setFocusOrigin] = useState<"keyboard" | "mouse" | null>(null)
   const sliderContainerRef = useRef<HTMLDivElement>(null)
+
+  // Tempo control state
+  const [tempoRate, setTempoRate] = useState(TempoEngine.DEFAULT_TEMPO)
+  const [detectedBPM, setDetectedBPM] = useState<number | null>(null)
+  const [isDetectingBPM, setIsDetectingBPM] = useState(false)
 
   const sanitizeTimestampInput = (raw: string): string => {
     const s = raw.replace(/[^\d:]/g, "")
@@ -238,7 +248,165 @@ export default function App() {
     }
   }, [isLoopEnabled, loopStart, loopEnd, duration, useHoursFormat, validateLoopInputs, activeSectionIndex, sections])
 
-  const handlePlayPause = () => {
+  // Sync audio playbackRate with tempoRate (using Tone.js for pitch preservation)
+  useEffect(() => {
+    // Update ToneAudioManager playback rate
+    if (toneManagerRef.current) {
+      toneManagerRef.current.setPlaybackRate(tempoRate)
+    }
+    // Also update HTML5 audio for non-Tone playback
+    const audio = audioRef.current
+    if (audio) {
+      audio.playbackRate = tempoRate
+    }
+  }, [tempoRate])
+
+  // Detect BPM when track changes
+  useEffect(() => {
+    const track = tracks[currentIndex]
+    if (!track?.file) {
+      setDetectedBPM(null)
+      return
+    }
+
+    let cancelled = false
+    setIsDetectingBPM(true)
+    setDetectedBPM(null)
+
+    BPMDetector.detectFromFile(track.file)
+      .then((bpm) => {
+        if (!cancelled) {
+          setDetectedBPM(bpm)
+          setIsDetectingBPM(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDetectedBPM(null)
+          setIsDetectingBPM(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentIndex, tracks])
+
+  // Handle tempo change
+  const handleTempoChange = useCallback((rate: number) => {
+    const clampedRate = TempoEngine.clampTempo(rate)
+    setTempoRate(clampedRate)
+  }, [])
+
+  // Initialize ToneAudioManager
+  useEffect(() => {
+    toneManagerRef.current = new ToneAudioManager()
+    
+    // Set up callbacks
+    toneManagerRef.current.setOnTimeUpdate((time) => {
+      setCurrentTime(time)
+      
+      // Handle loop logic for ToneAudioManager
+      if (activeSectionIndex != null && sections[activeSectionIndex]) {
+        const { startTime: s, endTime: e } = sections[activeSectionIndex]
+        const v = LoopEngine.validateLoopBounds(s, e, duration)
+        if (v.valid && LoopEngine.shouldLoop(time, e)) {
+          toneManagerRef.current?.seek(LoopEngine.getLoopStartTime(s))
+        }
+        return
+      }
+      
+      if (isLoopEnabled) {
+        const s = parseTimestampText(loopStart, useHoursFormat)
+        const e = parseTimestampText(loopEnd, useHoursFormat)
+        if (s != null && e != null) {
+          const v = LoopEngine.validateLoopBounds(s, e, duration)
+          if (v.valid && LoopEngine.shouldLoop(time, e)) {
+            toneManagerRef.current?.seek(LoopEngine.getLoopStartTime(s))
+          }
+        }
+      }
+    })
+    
+    toneManagerRef.current.setOnEnded(() => {
+      setIsPlaying(false)
+    })
+    
+    toneManagerRef.current.setOnLoaded((dur) => {
+      setDuration(dur)
+      setUseHoursFormat(dur >= 3600)
+      validateLoopInputs(loopStart, loopEnd)
+    })
+    
+    return () => {
+      toneManagerRef.current?.dispose()
+      toneManagerRef.current = null
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only init once
+
+  // Update ToneAudioManager callbacks when dependencies change
+  useEffect(() => {
+    if (!toneManagerRef.current) return
+    
+    toneManagerRef.current.setOnTimeUpdate((time) => {
+      setCurrentTime(time)
+      
+      // Handle loop logic for ToneAudioManager
+      if (activeSectionIndex != null && sections[activeSectionIndex]) {
+        const { startTime: s, endTime: e } = sections[activeSectionIndex]
+        const v = LoopEngine.validateLoopBounds(s, e, duration)
+        if (v.valid && LoopEngine.shouldLoop(time, e)) {
+          toneManagerRef.current?.seek(LoopEngine.getLoopStartTime(s))
+        }
+        return
+      }
+      
+      if (isLoopEnabled) {
+        const s = parseTimestampText(loopStart, useHoursFormat)
+        const e = parseTimestampText(loopEnd, useHoursFormat)
+        if (s != null && e != null) {
+          const v = LoopEngine.validateLoopBounds(s, e, duration)
+          if (v.valid && LoopEngine.shouldLoop(time, e)) {
+            toneManagerRef.current?.seek(LoopEngine.getLoopStartTime(s))
+          }
+        }
+      }
+    })
+  }, [isLoopEnabled, loopStart, loopEnd, duration, useHoursFormat, activeSectionIndex, sections])
+
+  // Load track into ToneAudioManager
+  const loadTrackWithTone = useCallback(async (track: Track) => {
+    if (!toneManagerRef.current || !track.file) return
+    
+    try {
+      await toneManagerRef.current.loadFile(track.file)
+      // Apply current tempo rate to the new track
+      toneManagerRef.current.setPlaybackRate(tempoRate)
+    } catch (error) {
+      console.error('Failed to load track with Tone.js:', error)
+    }
+  }, [tempoRate])
+
+  const handlePlayPause = async () => {
+    // Use ToneAudioManager for pitch-preserved playback
+    if (toneManagerRef.current && toneManagerRef.current.duration > 0) {
+      if (isPlaying) {
+        toneManagerRef.current.pause()
+      } else {
+        if (isLoopEnabled) {
+          const s = parseTimestampText(loopStart, useHoursFormat)
+          if (s != null && (duration === 0 || s < duration)) {
+            toneManagerRef.current.seek(LoopEngine.getLoopStartTime(s))
+          }
+        }
+        await toneManagerRef.current.play()
+      }
+      setIsPlaying(!isPlaying)
+      return
+    }
+    
+    // Fallback to HTML5 audio
     if (audioRef.current) {
       if (isPlaying) {
         audioRef.current.pause()
@@ -265,9 +433,18 @@ export default function App() {
     }
     setTracks((prev) => {
       const updated = [...prev, ...newTracks]
-      if (audioRef.current && updated.length > 0) {
+      if (updated.length > 0) {
         const idx = updated.length - 1
-        audioRef.current.src = updated[idx].url
+        const track = updated[idx]
+        
+        // Load into ToneAudioManager (primary for pitch-preserved tempo)
+        void loadTrackWithTone(track)
+        
+        // Also set HTML5 audio as fallback
+        if (audioRef.current) {
+          audioRef.current.src = track.url
+        }
+        
         setCurrentIndex(idx)
         setIsPlaying(false)
       }
@@ -284,8 +461,32 @@ export default function App() {
   }
 
   const handleProgressChange = (value: number[]) => {
-    if (!audioRef.current) return
     const newTime = value[0]
+    
+    // Use ToneAudioManager if available
+    if (toneManagerRef.current && toneManagerRef.current.duration > 0) {
+      if (isLoopEnabled) {
+        const s = parseTimestampText(loopStart, useHoursFormat)
+        const e = parseTimestampText(loopEnd, useHoursFormat)
+        if (s != null && e != null && duration > 0) {
+          const v = LoopEngine.validateLoopBounds(s, e, duration)
+          if (v.valid) {
+            if (newTime < s || newTime > e) {
+              const startTime = LoopEngine.getLoopStartTime(s)
+              toneManagerRef.current.seek(startTime)
+              setCurrentTime(startTime)
+              return
+            }
+          }
+        }
+      }
+      toneManagerRef.current.seek(newTime)
+      setCurrentTime(newTime)
+      return
+    }
+    
+    // Fallback to HTML5 audio
+    if (!audioRef.current) return
     if (isLoopEnabled) {
       const s = parseTimestampText(loopStart, useHoursFormat)
       const e = parseTimestampText(loopEnd, useHoursFormat)
@@ -308,6 +509,13 @@ export default function App() {
   const handleVolumeChange = (value: number[]) => {
     const newVolume = value[0]
     setVolume(newVolume)
+    
+    // Update ToneAudioManager volume
+    if (toneManagerRef.current) {
+      toneManagerRef.current.setVolume(newVolume / 100)
+    }
+    
+    // Also update HTML5 audio
     if (audioRef.current) {
       audioRef.current.volume = newVolume / 100
     }
@@ -397,43 +605,24 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-background text-foreground">
-      <aside className="w-64 border-r border-border bg-sidebar flex flex-col">
-        <div className="p-6 border-b border-sidebar-border">
-          <div className="flex items-center gap-2 mb-8">
-            <Music className="w-6 h-6 text-accent" />
-            <span className="text-xl font-bold">Scoreply</span>
-          </div>
-        </div>
+      <Sidebar
+        currentTrackTitle={
+          currentIndex >= 0 && tracks[currentIndex]?.metadata?.title
+            ? tracks[currentIndex]?.metadata?.title ?? null
+            : null
+        }
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+      />
 
-        <nav className="flex-1 px-4 py-6 space-y-4">
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-sidebar-primary/10 text-accent hover:bg-sidebar-primary/20 transition-colors cursor-pointer">
-            <Home className="w-5 h-5" />
-            <span className="font-medium">Home</span>
-          </button>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/10 transition-colors cursor-pointer">
-            <Search className="w-5 h-5" />
-            <span>Search</span>
-          </button>
-        </nav>
-
-        <div className="p-4 border-t border-sidebar-border">
-          <div className="text-xs text-sidebar-foreground/50 mb-2">Now Playing</div>
-          <div className="text-sm font-medium text-sidebar-foreground/80 truncate">
-            {currentIndex >= 0 && tracks[currentIndex]?.metadata?.title
-              ? tracks[currentIndex]?.metadata?.title
-              : "No track loaded"}
-          </div>
-        </div>
-      </aside>
-
-      <main className="flex-1 flex flex-col">
-        <header className="border-b border-border bg-card/30 backdrop-blur-sm px-8 py-6">
+      <main className="flex-1 flex flex-col min-w-0">
+        <header className="border-b border-border bg-card/30 backdrop-blur-sm px-4 sm:px-6 md:px-8 py-4 sm:py-6">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold mb-2">{(() => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening" })()}</h1>
-              <p className="text-muted-foreground">Start listening to your music</p>
+            <div className="ml-12 md:ml-0">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-1 sm:mb-2">{(() => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening" })()}</h1>
+              <p className="text-sm sm:text-base text-muted-foreground">Start listening to your music</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <input
                 ref={headerFileInputRef}
                 type="file"
@@ -458,7 +647,7 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto px-8 py-8">
+        <div className="flex-1 overflow-auto px-4 sm:px-6 md:px-8 py-4 sm:py-6 md:py-8">
           {tracks.length === 0 && (
           <div className="max-w-2xl mx-auto">
             <Card className="bg-card border-border p-8 rounded-2xl">
@@ -485,7 +674,7 @@ export default function App() {
           </div>
           )}
           {tracks.length > 0 && (
-            <div className="mt-8 max-w-3xl mx-auto space-y-3">
+            <div className="mt-4 sm:mt-6 md:mt-8 max-w-3xl mx-auto space-y-2 sm:space-y-3">
               {tracks.map((t, i) => (
                 <div
                   key={`${t.url}-${i}`}
@@ -528,11 +717,11 @@ export default function App() {
           )}
         </div>
 
-        <div className="border-t border-border bg-card/50 backdrop-blur-sm px-8 py-6">
+        <div className="border-t border-border bg-card/50 backdrop-blur-sm px-4 sm:px-6 md:px-8 py-4 sm:py-6">
           <audio ref={audioRef} />
 
-          <div className="flex items-center gap-4 mb-6">
-            <span className="text-sm text-muted-foreground inline-block w-[8ch] text-center select-none tabular-nums">{formatTime(currentTime)}</span>
+          <div className="flex items-center gap-2 sm:gap-4 mb-4 sm:mb-6">
+            <span className="text-xs sm:text-sm text-muted-foreground inline-block w-[5ch] sm:w-[8ch] text-center select-none tabular-nums">{formatTime(currentTime)}</span>
             <div
               className="relative flex-1"
               ref={sliderContainerRef}
@@ -654,10 +843,15 @@ export default function App() {
                 </div>
               )}
             </div>
-            <span className="text-sm text-muted-foreground inline-block w-[8ch] text-center select-none tabular-nums">{formatTime(duration)}</span>
+            <span className="text-xs sm:text-sm text-muted-foreground inline-block w-[5ch] sm:w-[8ch] text-center select-none tabular-nums">{formatTime(duration)}</span>
           </div>
 
-          <div className="relative flex items-center justify-center gap-4 mb-6">
+          <div className="flex items-center justify-between gap-4 mb-6">
+            {/* Left spacer for symmetry */}
+            <div className="flex-1 hidden md:block" />
+            
+            {/* Center playback controls */}
+            <div className="flex items-center gap-2 sm:gap-4">
             <Button
               onClick={() => setIsShuffle(!isShuffle)}
               variant="ghost"
@@ -701,8 +895,8 @@ export default function App() {
               <SkipBack className="w-5 h-5" />
             </Button>
 
-            <Button onClick={handlePlayPause} size="icon" className="w-14 h-14 rounded-full bg-accent hover:bg-accent/90 text-accent-foreground shadow-lg" disabled={currentIndex === -1 || duration === 0}>
-              {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
+            <Button onClick={handlePlayPause} size="icon" className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-accent hover:bg-accent/90 text-accent-foreground shadow-lg" disabled={currentIndex === -1 || duration === 0}>
+              {isPlaying ? <Pause className="w-5 h-5 sm:w-6 sm:h-6" /> : <Play className="w-5 h-5 sm:w-6 sm:h-6 ml-0.5" />}
             </Button>
 
             <Button
@@ -752,17 +946,28 @@ export default function App() {
                 </span>
               )}
             </Button>
-            <div className="absolute right-0 flex items-center gap-3">
-              <Volume2 className="w-4 h-4 text-muted-foreground" />
-              <Slider value={[volume]} min={0} max={100} step={1} onValueChange={handleVolumeChange} disabled={currentIndex === -1 || duration === 0} className="w-32" />
-              <span className="text-xs text-muted-foreground min-w-fit">{volume}%</span>
+            </div>
+            
+            {/* Right side - volume controls */}
+            <div className="flex-1 flex justify-end">
+              <VolumeControl
+                volume={volume}
+                onVolumeChange={handleVolumeChange}
+                disabled={currentIndex === -1 || duration === 0}
+              />
             </div>
           </div>
         </div>
       </main>
 
       {showControls && (
-        <aside className="w-80 border-l border-border bg-card/30 backdrop-blur-sm flex flex-col">
+        <>
+          {/* Backdrop for mobile */}
+          <div
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            onClick={() => setShowControls(false)}
+          />
+          <aside className="fixed lg:relative right-0 top-0 h-full z-50 w-80 border-l border-border bg-card/95 backdrop-blur-sm flex flex-col">
           <div className="border-b border-border px-6 py-4 flex items-center justify-between">
             <h3 className="text-lg font-bold flex items-center gap-2">
               <RotateCw className="w-4 h-4 text-accent" />
@@ -774,9 +979,10 @@ export default function App() {
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-            <TabsList className="mx-4 mt-4 grid w-auto grid-cols-2 bg-muted/50">
+            <TabsList className="mx-4 mt-4 grid w-auto grid-cols-3 bg-muted/50">
               <TabsTrigger value="loop" className="text-sm">Loop</TabsTrigger>
               <TabsTrigger value="sectioning" className="text-sm">Sections</TabsTrigger>
+              <TabsTrigger value="tempo" className="text-sm">Tempo</TabsTrigger>
             </TabsList>
 
             <TabsContent value="loop" className="flex-1 px-6 py-6 space-y-6 overflow-y-auto">
@@ -1123,8 +1329,19 @@ export default function App() {
                 </div>
               </div>
             </TabsContent>
+
+            <TabsContent value="tempo" className="flex-1 px-6 py-6 overflow-y-auto">
+              <TempoControls
+                tempoRate={tempoRate}
+                onTempoChange={handleTempoChange}
+                detectedBPM={detectedBPM}
+                isDetecting={isDetectingBPM}
+                disabled={currentIndex === -1 || duration === 0}
+              />
+            </TabsContent>
           </Tabs>
         </aside>
+        </>
       )}
 
       {isUploadModalOpen && (

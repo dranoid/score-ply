@@ -21,6 +21,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwind-merge": "^3.4.0",
+    "tone": "^15.1.22",
+    "web-audio-beat-detector": "^8.2.31",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
